@@ -53,3 +53,15 @@
 - 同步更新索引：`docs/software-design/README.md`、`README.en_US.md` / `README.zh_CN.md` 的 `docs/` 目录说明。
 - 参考 cindy 仓库文档组织完善索引：新增 `docs/README.md` 根总索引；AGENTS.md 规则索引按触发场景改写（附触发条件）；`docs/contribution/` 与 `docs/development/` 的 README 补充收录标准。
 - 引入社区治理文档（参照 cindy 改写，放仓库根目录）：新增 `CONTRIBUTING.md` / `.zh_CN.md`（贡献指南，针对 ESP-IDF/AI agent/fork 场景改写）、`CODE_OF_CONDUCT.md` / `.zh_CN.md`（贡献者公约）、`SECURITY.md` / `.zh_CN.md`（安全报告流程）、`SUPPORT.md` / `.zh_CN.md`（支持渠道）；AGENTS.md 与 docs/README.md 同步引用。
+
+## v1.0.0-faraway - 2026-09-22
+
+- 新增《去远方》应用：面向 240×320 竖版卡片机的旅行收集游戏。
+  - 从家出发，选择目的地后开始旅行；一趟旅程按天推进，随机触发一次天气浮层与一句猫的对话。
+  - 每趟旅程按目的地档位发放明信片（共 24 张），并有 25% 概率获得一件纪念品，已获得的不会重复。
+  - 收藏册含小游戏、设置、家、纪念品图鉴四格，仅从小游戏格进入；上下键在两格之间移动，到边翻页。
+  - 设置页用上下键调节屏幕亮度、用 ● 键返回，并逐行列出主页与旅游页的按键表。
+  - 7 种天气图层（雨、雪、雾、萤火、小飞机、热气球、肥皂泡泡）随机 90~240 秒出现一次、持续 25 秒。
+  - 行程、明信片、纪念品与亮度存于 NVS，复位不丢。
+- 基于官方 BSP 构建：`components/bsp/` 与上游逐字节一致，屏幕旋转与分辨率改用 LVGL 公开 API 在 `main/tb_prefs.c` 内实现。
+- `sdkconfig.defaults` 将 `CONFIG_LV_MEM_SIZE_KILOBYTES` 由 24 提到 80；上游默认值下打开收藏册会整屏定格。

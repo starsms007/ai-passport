@@ -56,3 +56,15 @@
 - Updated software-design and project README references for the new documentation structure.
 - Added the documentation catalog and task-triggered routing based on the earlier repository model.
 - Added bilingual contribution, code-of-conduct, security, and support documents tailored to this ESP-IDF and fork workflow.
+
+## v1.0.0-faraway - 2026-09-22
+
+- Added the Faraway application, a travel-and-collect game for the 240x320 portrait card device.
+  - Leave home, pick a destination, and set off; a trip advances day by day and randomly triggers a weather overlay and one line of cat dialogue.
+  - Each trip awards postcards by destination tier, 24 in total, and has a 25% chance to add a souvenir that is never a duplicate.
+  - The collection book holds four entries (mini-game, settings, home, and the souvenir catalog) and is entered from the mini-game entry; the up/down keys move between the two boxes and page past their edges.
+  - The settings page adjusts screen brightness with up/down and returns with the round button, and lists the key tables for the home and travel pages row by row.
+  - Seven weather overlays (rain, snow, fog, fireflies, a small plane, a hot-air balloon, and soap bubbles) appear at a random 90-240 s interval and last 25 s.
+  - Trips, postcards, souvenirs, and brightness persist in NVS and survive a reset.
+- Built against the official BSP: `components/bsp/` stays byte-identical to upstream, and rotation and resolution are implemented with public LVGL APIs inside `main/tb_prefs.c`.
+- Raised `CONFIG_LV_MEM_SIZE_KILOBYTES` from 24 to 80 in `sdkconfig.defaults`; with the upstream default, opening the collection book freezes the whole screen.
