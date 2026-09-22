@@ -1,5 +1,5 @@
 // main/tb_prefs.c
-// 少量持久化偏好。目前只有一项：屏幕方向。
+// 少量持久化偏好：屏幕方向 + 亮度。
 //
 // ★ 改了默认值：雷霆战机是横版（90），《去远方》是竖版（0/180）。
 //   180 与 0 的区别只是上下颠倒 —— 屏幕装反了的批次靠它救回来，
@@ -8,8 +8,10 @@
 
 #include "esp_log.h"
 #include "nvs.h"
+#include "lvgl.h"
 
 #include "bsp_display.h"
+#include "bsp_pins.h"
 
 static const char *TAG = "prefs";
 
@@ -27,6 +29,46 @@ static const char *TAG = "prefs";
 
 static int s_deg  = DEG_DEF;
 static int s_br   = BR_DEF;
+
+// ---------------------------------------------------------------------------
+// 显示方向：两个就地实现的小助手
+//
+// 本工程原先的 components/bsp 自带 bsp_lvgl_set_rotation() / bsp_lvgl_get_res()，
+// 上游 BSP 没有这两个函数。这里改用 LVGL 的公开 API 就地实现，**不动 components/bsp**
+// —— 保持那份与上游逐字节一致，日后同步上游才不会每次都撞在同一堆文件上。
+//
+// 语义与旧实现一致：拿不到 display 时静默跳过（旋转）、退回编译期的 BSP_LCD_W/H（打印）。
+// ---------------------------------------------------------------------------
+static void fa_lvgl_set_rotation(int deg) {
+    lv_display_t *disp = lv_display_get_default();
+    if (!disp) return;                     // LVGL 还没起来，保持当前方向
+
+    lv_display_rotation_t r;
+    switch (deg) {
+    case 90:  r = LV_DISPLAY_ROTATION_90;  break;
+    case 180: r = LV_DISPLAY_ROTATION_180; break;
+    case 270: r = LV_DISPLAY_ROTATION_270; break;
+    default:  r = LV_DISPLAY_ROTATION_0;   break;
+    }
+
+    // lv_display_set_rotation 会发 LV_EVENT_SIZE_CHANGED，esp_lvgl_port 的
+    // size_update 回调据此把 swap_xy / mirror 重新下发给面板。
+    if (bsp_lvgl_lock(1000)) {
+        lv_display_set_rotation(disp, r);
+        bsp_lvgl_unlock();
+    }
+}
+
+static void fa_lvgl_get_res(int *w, int *h) {
+    lv_display_t *disp = lv_display_get_default();
+    if (!disp) {
+        if (w) *w = BSP_LCD_W;
+        if (h) *h = BSP_LCD_H;
+        return;
+    }
+    if (w) *w = (int)lv_display_get_horizontal_resolution(disp);
+    if (h) *h = (int)lv_display_get_vertical_resolution(disp);
+}
 
 int tb_screen_deg(void) { return s_deg; }
 int tb_bright(void)     { return s_br;  }
@@ -55,7 +97,7 @@ int tb_screen_deg_set(int deg) {
     if (deg != 0 && deg != 180) deg = DEG_DEF;
 
     s_deg = deg;
-    bsp_lvgl_set_rotation(deg);
+    fa_lvgl_set_rotation(deg);
 
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
@@ -88,7 +130,7 @@ void tb_prefs_apply(void) {
     if (deg != 0 && deg != 180) deg = DEG_DEF;
 
     s_deg = deg;
-    bsp_lvgl_set_rotation(deg);
+    fa_lvgl_set_rotation(deg);
 
     // ★ 亮度要在开机时补一次:main.c 里那句 bsp_display_backlight(100) 跑在
     //   本函数之前,不覆盖的话用户调过的亮度每次开机都会被打回 100。
@@ -98,7 +140,7 @@ void tb_prefs_apply(void) {
     bsp_display_backlight((uint8_t)br);
 
     int w = 0, hgt = 0;
-    bsp_lvgl_get_res(&w, &hgt);
+    fa_lvgl_get_res(&w, &hgt);
     ESP_LOGI(TAG, "rotation %d deg, brightness %d%%, logical resolution %dx%d",
              deg, br, w, hgt);
 }
