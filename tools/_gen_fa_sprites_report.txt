@@ -1,0 +1,125 @@
+manifest   D:/Espressif/去远方-交接包-20260920/去远方-交接包-20260918/03-素材流水线/art\manifest.json
+jobs       106 条（manifest 顺序，保证可复现）
+skip       32 条：bed bee_b bookshelf butterfly_b cat_return cloud clover fence flowers fx_bubble fx_burst fx_flag fx_halo fx_rain fx_sparkle fx_steam house item_charm item_food item_gear lantern mailbox rocks rug snail_a stove table tree trophy_a trophy_b turtle_a window
+art/out    D:/Espressif/去远方-交接包-20260920/去远方-交接包-20260918/03-素材流水线/art\out
+
+  cat_idle          64x64  x8  rgb565a8    98304 B  累计     98304 B
+  cat_walk          64x64  x8  rgb565a8    98304 B  累计    196608 B
+  cat_eat           64x64  x8  rgb565a8    98304 B  累计    294912 B
+  cat_sleep         64x64  x8  rgb565a8    98304 B  累计    393216 B
+  cat_read          64x64  x8  rgb565a8    98304 B  累计    491520 B
+  cat_write         64x64  x8  rgb565a8    98304 B  累计    589824 B
+  cat_pack          64x64  x8  rgb565a8    98304 B  累计    688128 B
+  cat_wave          64x64  x8  rgb565a8    98304 B  累计    786432 B
+  cat_return       --- 跳过（下线名单）
+  cat_carry         64x64  x8  rgb565a8    98304 B  累计    884736 B
+  snail_a          --- 跳过（下线名单）
+  snail_b           48x48  x4  rgb565a8    27648 B  累计    912384 B
+  bee_a             48x48  x4  rgb565a8    27648 B  累计    940032 B
+  bee_b            --- 跳过（下线名单）
+  butterfly_a       48x48  x4  rgb565a8    27648 B  累计    967680 B
+  butterfly_b      --- 跳过（下线名单）
+  turtle_a         --- 跳过（下线名单）
+  turtle_b          48x48  x4  rgb565a8    27648 B  累计    995328 B
+  house            --- 跳过（下线名单）
+  tree             --- 跳过（下线名单）
+  bookshelf        --- 跳过（下线名单）
+  bed              --- 跳过（下线名单）
+  table            --- 跳过（下线名单）
+  mailbox          --- 跳过（下线名单）
+  fence            --- 跳过（下线名单）
+  lantern          --- 跳过（下线名单）
+  rug              --- 跳过（下线名单）
+  window           --- 跳过（下线名单）
+  stove            --- 跳过（下线名单）
+  rocks            --- 跳过（下线名单）
+  flowers          --- 跳过（下线名单）
+  cloud            --- 跳过（下线名单）
+  clover           --- 跳过（下线名单）
+  fx_sparkle       --- 跳过（下线名单）
+  fx_steam         --- 跳过（下线名单）
+  fx_rain          --- 跳过（下线名单）
+  fx_snow           24x24  x4  rgb565a8     6912 B  累计   1002240 B
+  fx_flag          --- 跳过（下线名单）
+  fx_burst         --- 跳过（下线名单）
+  fx_halo          --- 跳过（下线名单）
+  fx_bubble        --- 跳过（下线名单）
+  souvenir_a        44x44  x12 rgb565a8    69696 B  累计   1071936 B
+  souvenir_b        44x44  x12 rgb565a8    69696 B  累计   1141632 B
+  item_food        --- 跳过（下线名单）
+  item_charm       --- 跳过（下线名单）
+  item_gear        --- 跳过（下线名单）
+  trophy_a         --- 跳过（下线名单）
+  trophy_b         --- 跳过（下线名单）
+  city_canola      176x220 x1  rgb565      77440 B  累计   1219072 B   ★直出565
+  city_bridge      176x220 x1  rgb565      77440 B  累计   1296512 B   ★直出565
+  city_bamboo      176x220 x1  rgb565      77440 B  累计   1373952 B   ★直出565
+  city_willow      176x220 x1  rgb565      77440 B  累计   1451392 B   ★直出565
+  town_alley       176x220 x1  rgb565      77440 B  累计   1528832 B   ★直出565
+  town_lake        176x220 x1  rgb565      77440 B  累计   1606272 B   ★直出565
+  town_terrace     176x220 x1  rgb565      77440 B  累计   1683712 B   ★直出565
+  town_mudflat     176x220 x1  rgb565      77440 B  累计   1761152 B   ★直出565
+  prov_huangshan   176x220 x1  rgb565      77440 B  累计   1838592 B   ★直出565
+  prov_lijiang     176x220 x1  rgb565      77440 B  累计   1916032 B   ★直出565
+  prov_taishan     176x220 x1  rgb565      77440 B  累计   1993472 B   ★直出565
+  prov_wall        176x220 x1  rgb565      77440 B  累计   2070912 B   ★直出565
+  far_danxia       176x220 x1  rgb565      77440 B  累计   2148352 B   ★直出565
+  far_poplar       176x220 x1  rgb565      77440 B  累计   2225792 B   ★直出565
+  far_luguhu       176x220 x1  rgb565      77440 B  累计   2303232 B   ★直出565
+  far_kanas        176x220 x1  rgb565      77440 B  累计   2380672 B   ★直出565
+  far_daocheng     176x220 x1  rgb565      77440 B  累计   2458112 B   ★直出565
+  edge_potala      176x220 x1  rgb565      77440 B  累计   2535552 B   ★直出565
+  edge_star        176x220 x1  rgb565      77440 B  累计   2612992 B   ★直出565
+  edge_aurora      176x220 x1  rgb565      77440 B  累计   2690432 B   ★直出565
+  edge_kekexili    176x220 x1  rgb565      77440 B  累计   2767872 B   ★直出565
+  edge_grassland   176x220 x1  rgb565      77440 B  累计   2845312 B   ★直出565
+  edge_snowpeak    176x220 x1  rgb565      77440 B  累计   2922752 B   ★直出565
+  edge_taklimakan  176x220 x1  rgb565      77440 B  累计   3000192 B   ★直出565
+  home             240x320 x1  rgb565     153600 B  累计   3153792 B   ★直出565
+  nocat_city_canola 240x320 x1  rgb565     153600 B  累计   3307392 B   ★直出565
+  nocat_city_bridge 240x320 x1  rgb565     153600 B  累计   3460992 B   ★直出565
+  nocat_city_bamboo 240x320 x1  rgb565     153600 B  累计   3614592 B   ★直出565
+  nocat_city_willow 240x320 x1  rgb565     153600 B  累计   3768192 B   ★直出565
+  nocat_town_alley 240x320 x1  rgb565     153600 B  累计   3921792 B   ★直出565
+  nocat_town_lake  240x320 x1  rgb565     153600 B  累计   4075392 B   ★直出565
+  nocat_town_terrace 240x320 x1  rgb565     153600 B  累计   4228992 B   ★直出565
+  nocat_town_mudflat 240x320 x1  rgb565     153600 B  累计   4382592 B   ★直出565
+  nocat_prov_huangshan 240x320 x1  rgb565     153600 B  累计   4536192 B   ★直出565
+  nocat_prov_lijiang 240x320 x1  rgb565     153600 B  累计   4689792 B   ★直出565
+  nocat_prov_taishan 240x320 x1  rgb565     153600 B  累计   4843392 B   ★直出565
+  nocat_prov_wall  240x320 x1  rgb565     153600 B  累计   4996992 B   ★直出565
+  nocat_far_danxia 240x320 x1  rgb565     153600 B  累计   5150592 B   ★直出565
+  nocat_far_poplar 240x320 x1  rgb565     153600 B  累计   5304192 B   ★直出565
+  nocat_far_luguhu 240x320 x1  rgb565     153600 B  累计   5457792 B   ★直出565
+  nocat_far_kanas  240x320 x1  rgb565     153600 B  累计   5611392 B   ★直出565
+  nocat_far_daocheng 240x320 x1  rgb565     153600 B  累计   5764992 B   ★直出565
+  nocat_edge_potala 240x320 x1  rgb565     153600 B  累计   5918592 B   ★直出565
+  nocat_edge_star  240x320 x1  rgb565     153600 B  累计   6072192 B   ★直出565
+  nocat_edge_aurora 240x320 x1  rgb565     153600 B  累计   6225792 B   ★直出565
+  nocat_edge_kekexili 240x320 x1  rgb565     153600 B  累计   6379392 B   ★直出565
+  nocat_edge_grassland 240x320 x1  rgb565     153600 B  累计   6532992 B   ★直出565
+  nocat_edge_snowpeak 240x320 x1  rgb565     153600 B  累计   6686592 B   ★直出565
+  nocat_edge_taklimakan 240x320 x1  rgb565     153600 B  累计   6840192 B   ★直出565
+  batt_full         26x14  x1  rgb565a8     1092 B  累计   6841284 B
+  batt_half         26x14  x1  rgb565a8     1092 B  累计   6842388 B
+  batt_low          26x14  x1  rgb565a8     1092 B  累计   6843492 B
+  mini_cover       176x120 x1  rgb565a8    63360 B  累计   6906864 B
+  fx_drop           24x24  x4  rgb565a8     6912 B  累计   6913776 B
+  fx_firefly        24x24  x4  rgb565a8     6912 B  累计   6920688 B
+  fx_plane          24x24  x2  rgb565a8     3456 B  累计   6924144 B
+  fx_balloon        24x24  x4  rgb565a8     6912 B  累计   6931056 B
+  fx_soap           24x24  x4  rgb565a8     6912 B  累计   6937968 B
+
+========================================================================
+对账
+  总帧数        187
+  总像素        3262404
+  ALIGN=16 填充  36 B
+  fa_sprites.bin 6937968 B（6.617 MiB）
+  多帧 job（进 fa_anims[]）21 条
+  单张 job（导 fa_res_*）  53 条
+========================================================================
+[out ] D:\Espressif\去远方-交接包-20260920\去远方-交接包-20260918\02-固件源码\main\fa_sprites.bin  6937968 B
+[out ] D:\Espressif\去远方-交接包-20260920\去远方-交接包-20260918\02-固件源码\main\fa_sprites.c  46828 B
+[out ] D:\Espressif\去远方-交接包-20260920\去远方-交接包-20260918\02-固件源码\main\fa_sprites.h  4633 B
+[sum ] 21 条动画 / 53 张单图 / 187 帧 / 3262404 px

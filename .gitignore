@@ -11,3 +11,9 @@ managed_components/
 /.agents/skills/passport-build
 /.agents/skills/passport-device-test
 /.agents/skills/passport-debug
+
+# 本机 WiFi 凭据（模板见 main/secrets_wifi.example.h）
+main/secrets_wifi.h
+
+# 素材/图集生成物的历史备份
+*.before-r*

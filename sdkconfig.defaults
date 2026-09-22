@@ -1,44 +1,146 @@
+# ======================================================================
+# 《去远方》构建配置
+# ======================================================================
+#
+# ⚠ 这份文件决定了别人 clone 下来编出来的固件**能不能用**，不只是能不能编过。
+#   下面有几项和上游默认值不同，每一处都写了原因 —— 改之前请先读完注释。
+#
+# ⚠⚠ 产物只认 **8MB Flash** 的 AI Passport。
+#    partitions.csv 把 app 划到 0x7F0000（0x10000 + 0x7F0000 = 0x800000），
+#    正好顶满 8MB 边界。刷进 4MB 板会无限重启。
+
 # --- 目标芯片 ---
 CONFIG_IDF_TARGET="esp32c3"
-# 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
+# ESP32-C3 无 PSRAM，故不设 CONFIG_SPIRAM。
 
-# --- Flash ---
-# FoloToy AI Passport 当前产品/固件基线使用 8MB Flash。
+# --- Flash / 分区表 ---
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
-# 固定 8MB 镜像头，关闭 detect，便于 idf.py merge-bin。
-CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
-# 默认模板只保留 NVS、PHY data 和占用剩余空间的 factory app；用户可按需修改。
+# 固定 8MB 镜像头（关掉 detect），便于 `idf.py merge-bin` 出一整片。
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
-CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
 
-# --- 控制台:USB-Serial-JTAG(C3 原生 USB,GPIO18/19)---
-# 不用 UART0:其默认 TX=GPIO21 与本板背光引脚冲突。
+# --- 控制台：USB-Serial-JTAG（C3 原生 USB，GPIO18/19）---
+# 不用 UART0：其默认 TX=GPIO21 与本板背光引脚冲突。
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
-# --- LVGL ---
-CONFIG_LV_COLOR_DEPTH_16=y
-# 20 ms display refresh period targets up to 50 FPS when rendering and SPI
-# transfer complete within the same budget.
-CONFIG_LV_DEF_REFR_PERIOD=20
-CONFIG_LV_FONT_MONTSERRAT_14=y
-CONFIG_LV_FONT_MONTSERRAT_20=y
-# LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
-# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
-CONFIG_LV_MEM_SIZE_KILOBYTES=24
-
 # --- 系统 ---
 CONFIG_FREERTOS_HZ=1000
+# app_main 里要起 WiFi / esp_netif，主循环每帧还要进 LVGL 同步；
+# 默认 3584 不够，4096 也偏紧（深层绘制调用会蹭到边界）。
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
 
-# --- Bluetooth LE / NimBLE ---
-# ESP32-C3 仅支持 BLE；示例只启用单连接 peripheral 所需的最小 host 配置。
-CONFIG_BT_ENABLED=y
-CONFIG_BT_NIMBLE_ENABLED=y
-CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
-CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
-CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
-CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
-CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
-CONFIG_BT_NIMBLE_HOST_BASED_PRIVACY=n
-CONFIG_BT_NIMBLE_NVS_PERSIST=n
+# ======================================================================
+# LVGL
+# ======================================================================
+CONFIG_LV_COLOR_DEPTH_16=y
+
+# 刷新周期 33ms ≈ 30 FPS。
+# ★ 上游默认是 20ms(50FPS)，是配合 80MHz SPI 与刷新优化调出来的；
+#   本工程按 33ms 在实机跑过多轮，先保持不动，别顺手改成 20。
+CONFIG_LV_DEF_REFR_PERIOD=33
+
+# LVGL 内部兜底字体；界面本身全用自带中文字库（main/fonts/）。
+CONFIG_LV_FONT_MONTSERRAT_14=y
+# 本界面不用它，开着纯属白占 flash。
+# CONFIG_LV_FONT_MONTSERRAT_20 is not set
+
+# ★★★ LVGL 独立静态堆。**这一项最不能照抄上游。**
+#   上游默认 24KB。本工程开机常驻约 200 个对象（游戏世界 104 + 状态栏 14 +
+#   四张覆盖页 ~50 + 天气层 30），且天气粒子是**缩放过**的 image —— LVGL 每画
+#   一个都要 lv_malloc 一块变换缓冲，这是持续的每帧开销。
+#   24KB 的症状不是"慢"，而是 **一打开收藏册 / 一开始旅行就整屏定格**
+#   （全屏重绘那一帧分配失败 → LV_ASSERT_MALLOC → 默认 handler `while(1);`）。
+#   80KB 在实机跑过（第四十九轮复验：不会定格）。
+#   · 不要一次加到 128：池子是从 DRAM 划走的（C3 共 384KB，扣掉 data/bss
+#     只剩约 124KB 给系统堆），加太多 WiFi 那边会不够。
+#   · 运行期水位看串口 `fa_wx: boot  LVGL free=... maxused=...`，
+#     要判断的是 maxused（free 会被碎片骗）。
+CONFIG_LV_MEM_SIZE_KILOBYTES=80
+
+# --- 中文：编码与缺字占位 ---
+# 缺字显示成方框，让问题在开发期就可见（关掉只会变空白，不会补齐字形）。
+CONFIG_LV_TXT_ENC_UTF8=y
+CONFIG_LV_USE_FONT_PLACEHOLDER=y
+
+# ======================================================================
+# SNTP 校时
+# ======================================================================
+# 三个服务器：aliyun 国内快，pool 兜底。
+CONFIG_LWIP_SNTP_MAX_SERVERS=3
+# 默认是 y：SNTP 会把首次请求随机推迟 1~5 分钟。开机的设备不能忍。
+# CONFIG_LWIP_SNTP_STARTUP_DELAY is not set
+# 6 小时重校一次（毫秒）。
+CONFIG_LWIP_SNTP_UPDATE_DELAY=21600000
+
+# ======================================================================
+# 裁剪：关掉这一版完全没用到的功能
+# ======================================================================
+#
+# 【为什么必须显式关 widget，而不是指望链接器丢】
+#   LVGL 把一部分绘图辅助函数埋在 widget 的 .c 里。只要有人引用其中一个，
+#   整个 .o 都会被拉进镜像 —— 实测 main 引用了 lv_draw_line_dsc_init，
+#   连带把 lv_chart(6.5KB) / lv_scale(7.2KB) 一起拖了进来。
+#   所以「没调用」不等于「没进镜像」。
+#
+# 【留着的只有三样】
+#   LV_USE_IMAGE / LV_USE_LABEL / LV_USE_THEME_DEFAULT
+#
+# 【为什么现在特别在乎】app 分区 0x7F0000 = 8,323,072 B，
+#   当前镜像约 8.2 MB（占用 ~98.6%）。这几行是**省 flash 的主力**，
+#   删掉任何一行都可能直接把镜像顶出分区。
+
+# LVGL：没用到的 widget / 主题 / 布局 / 示例
+# CONFIG_LV_USE_ANIMIMG is not set
+# CONFIG_LV_USE_ARC is not set
+# CONFIG_LV_USE_ARCLABEL is not set
+# CONFIG_LV_USE_BAR is not set
+# CONFIG_LV_USE_BUTTON is not set
+# CONFIG_LV_USE_BUTTONMATRIX is not set
+# CONFIG_LV_USE_CALENDAR is not set
+# CONFIG_LV_USE_CANVAS is not set
+# CONFIG_LV_USE_CHART is not set
+# CONFIG_LV_USE_CHECKBOX is not set
+# CONFIG_LV_USE_DROPDOWN is not set
+# CONFIG_LV_USE_IMAGEBUTTON is not set
+# CONFIG_LV_USE_KEYBOARD is not set
+# CONFIG_LV_USE_LED is not set
+# CONFIG_LV_USE_LINE is not set
+# CONFIG_LV_USE_LIST is not set
+# CONFIG_LV_USE_MENU is not set
+# CONFIG_LV_USE_MSGBOX is not set
+# CONFIG_LV_USE_ROLLER is not set
+# CONFIG_LV_USE_SCALE is not set
+# CONFIG_LV_USE_SLIDER is not set
+# CONFIG_LV_USE_SPAN is not set
+# CONFIG_LV_USE_SPINBOX is not set
+# CONFIG_LV_USE_SPINNER is not set
+# CONFIG_LV_USE_SWITCH is not set
+# CONFIG_LV_USE_TABLE is not set
+# CONFIG_LV_USE_TABVIEW is not set
+# CONFIG_LV_USE_TEXTAREA is not set
+# CONFIG_LV_USE_TILEVIEW is not set
+# CONFIG_LV_USE_WIN is not set
+# CONFIG_LV_USE_THEME_SIMPLE is not set
+# CONFIG_LV_USE_FLEX is not set
+# CONFIG_LV_USE_GRID is not set
+# CONFIG_LV_USE_OBSERVER is not set
+# CONFIG_LV_LABEL_TEXT_SELECTION is not set
+# CONFIG_LV_BUILD_EXAMPLES is not set
+# CONFIG_LV_BUILD_DEMOS is not set
+
+# 网络：本机只做 STA + IPv4 + SNTP(UDP)。
+#   IPv6、DHCP 服务端、SoftAP、WPA3 的 SAE-PK/OWE、企业级认证，全用不到。
+#   ★ 保留 WPA3-SAE 与 SAE-H2E：关掉就连不上 WPA3 路由器。
+# CONFIG_LWIP_IPV6 is not set
+# CONFIG_LWIP_DHCPS is not set
+# CONFIG_LWIP_IP4_FRAG is not set
+# CONFIG_ESP_WIFI_SOFTAP_SUPPORT is not set
+# CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT is not set
+# CONFIG_ESP_WIFI_ENABLE_SAE_PK is not set
+# CONFIG_ESP_WIFI_ENABLE_WPA3_OWE_STA is not set
+# CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT is not set
+
+# 蓝牙：本工程不用（上游 demo 默认开），显式关掉省 RAM 与 flash。
+# CONFIG_BT_ENABLED is not set
