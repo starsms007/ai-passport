@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 24 px
  * Bpp: 4
- * Opts: --font C:\Windows\Fonts\Noto Sans SC Bold (TrueType).otf --size 24 --bpp 4 --format lvgl --no-compress --lv-include lvgl.h --lv-font-name fa_font_game -o D:\Espressif\去远方-交接包-20260920\去远方-交接包-20260918\02-固件源码\main\fonts\fa_font_game.c --symbols 剪小布得戏新游石置获设？
+ * Opts: --font C:\Windows\Fonts\Noto Sans SC Bold (TrueType).otf --size 24 --bpp 4 --format lvgl --no-compress --lv-include lvgl.h --lv-font-name fa_font_game -o D:\Games\faraway-fw\main\fonts\fa_font_game.c --symbols 剪小布得戏新游石置获设？
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

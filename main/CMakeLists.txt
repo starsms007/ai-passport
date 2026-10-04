@@ -6,6 +6,7 @@ idf_component_register(
          "tb_clock.c"         # SNTP 校时 + NVS 时间缓存
          "tb_prefs.c"         # 屏幕方向/亮度等持久化偏好
          "fa_talk.c"          # ★ 第十八轮：猫咪对我说的话（290 句，_dl/_talk18.py 产出）
+         "fa_batt.c"          # ★ 2026-09-28：电量计自愈看护（不改 components/bsp）
          # fa_music.c 已于 2026-09-19 下线（背景音乐去掉，audio 分区一并取消）
          # ★ 字库走显式列举（不是 GLOB）。gen_fa_fonts.py 新增一支字体后，
          #   必须在这里补一行，否则 .c 会静静地不进构建图，
@@ -16,7 +17,9 @@ idf_component_register(
          "fonts/fa_font_game.c"    # 思源黑 Bold 24px，字面见 gen_fa_fonts.py 的 GAME_TEXT
          "fonts/fa_font_small.c"   # ★ 第四十六轮：思源黑 Medium 12px，设置页那三块按键表专用
     INCLUDE_DIRS "." "fonts"
-    REQUIRES bsp esp_wifi esp_netif nvs_flash lwip esp_timer
+    # ★ 2026-09-28：esp_driver_i2c 是给 fa_batt.c 的 i2c_master_bus_reset() 链接用
+    #   （bsp 的 REQUIRES 里本来就有，这里是显式声明，不依赖传递性）。
+    REQUIRES bsp esp_wifi esp_netif nvs_flash lwip esp_timer esp_driver_i2c
     # ------------------------------------------------------------------
     # ★ 精灵数据走 EMBED_FILES，不生成 .c 字节数组。
     #   展开成 "0x00, 0x00, ..." 源码约 8MB，GCC 编这一个 TU 要吃掉大量内存

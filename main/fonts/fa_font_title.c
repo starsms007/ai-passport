@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 24 px
  * Bpp: 4
- * Opts: --font C:\Windows\Fonts\STZHONGS.TTF --size 24 --bpp 4 --format lvgl --no-compress --lv-include lvgl.h --lv-font-name fa_font_title -o D:\Espressif\去远方-交接包-20260920\去远方-交接包-20260918\02-固件源码\main\fonts\fa_font_title.c --range 0x20-0x7E --symbols 一了会出去又回天它小带戏方是来游物猫礼站远
+ * Opts: --font C:\Windows\Fonts\STZHONGS.TTF --size 24 --bpp 4 --format lvgl --no-compress --lv-include lvgl.h --lv-font-name fa_font_title -o D:\Games\faraway-fw\main\fonts\fa_font_title.c --range 0x20-0x7E --symbols 一了会出去又回天它小带戏方是来游物猫礼站远
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE

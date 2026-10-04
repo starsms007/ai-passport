@@ -107,6 +107,10 @@
 #include "fa_sprites.h"
 #include "fa_fonts.h"
 #include "fa_talk.h"     // ★ 第十八轮：猫咪对我说的话（290 句，只在气泡里用 16px 显示）
+// ★★ 2026-09-28：电量计自愈看护。**不动 components/bsp 一个字节** ——
+//   靠 bsp_battery_init() 自己的语义（句柄为空 ⇒ 完整重跑）做重试，
+//   来龙去脉见 fa_batt.h 顶部。
+#include "fa_batt.h"
 #include "tb_clock.h"
 // ★★ 第四十三轮（排障）：只为了天气那两行内存账。
 //   为什么值得为「两行日志」加两个头文件：LVGL 的堆是一个**独立静态池**
@@ -1288,6 +1292,11 @@ static int      s_last_batt   = -2;
 //   结果整机运行期间电量那一格就永远是空的。现在失败只是把重试间隔放长。
 static bool     s_batt_ok;
 static uint32_t s_batt_ms;
+// ★★ 2026-09-28：连续读失败计数。0 = 上一轮读到了。
+//   原来「一次失败就清数字」——一次 NACK / 芯片未就绪时读到 0xFF 都会命中，
+//   于是偶发抖动也会让数字凭空消失。现在连丢 3 次（≈30 秒）才认账，
+//   中间这几秒交给 fa_batt 的自愈任务去修；修好则玩家根本看不见变化。
+static uint8_t  s_batt_miss;
 // ★ 2026-09-19（第五次）新增的两个 HUD 状态（顶栏没有底色之后才需要）：
 //   s_batt_soc —— 最近一次读到的电量，-1 = 没读到。hud_paint() 要拿它决定
 //     低电量那档红字，但不能自己去读 I2C（那是阻塞的，而 hud_paint 会在
@@ -1314,6 +1323,9 @@ static uint32_t s_nb_ms;
 // 但它的定义排在文件更靠后的位置。static 函数也要先声明再用。
 static void bar_refresh(void);
 static void hud_paint(void);   // 顶栏配色：只写样式、不读硬件（见 batt_show 旁边）
+// ★ 前置声明：batt_poll() 定义在 fa_view_tick 上方（≈7240），而 fa_view_init
+//   里要先调它一次（≈7197）。少了这一行就是隐式声明 ⇒ 编译报错。
+static void batt_poll(void);
 // ★★ 2026-09-19（第十六轮）新增：小游戏的结算函数**被四个游戏各自的 tick 调用**
 //   （rab_tick / rps_tick / mem_tick / can_tick），而它的定义在它们**之后**。
 //   不声明就是 `implicit declaration of function 'mini_finish'`，
@@ -1425,6 +1437,12 @@ typedef struct {
     int16_t  vy;
     uint8_t  amp;   // 横向摆动幅度（像素），0 = 不摆。只有雪用得上。
     uint16_t ph;    // 摆动相位 0..1999（一整周 = 2 秒）
+    // ★ 亚像素余数（2026-09-23 第五十四轮加）。单位 = 1/1000 像素，
+    //   取值 (-999, 999]。存在的唯一理由见 weather_tick 里「位移」那段长注释：
+    //   整数除法会把每帧不足 1px 的位移丢掉，dt=50 时慢速粒子会「一帧都不动」。
+    //   ⚠ 必须随 seed 一起清零（带上一世的余数没意义，虽然误差 <1px）。
+    int16_t  rx;
+    int16_t  ry;
 } wx_p_t;
 
 // 一条雾带。★ **故意不复用 wx_p_t** —— 两者要的字段几乎不重叠：
@@ -1436,6 +1454,11 @@ typedef struct {
     int16_t y;      // 上沿 y（整场天气里不变）
     uint8_t w;      // 宽度
     int8_t  vx;     // 横向速度（像素/秒，恒正 = 一直往右飘）
+    // ★ 亚像素余数，同 wx_p_t::rx。雾只有 x 一个方向要它。
+    //   ⚠ 这条**不是「顺手一起修」而是同一个 bug 的重灾区**：雾 vx 只有 4~13 px/s，
+    //     dt=50 时 vx*dt = 200~650，**全部截断成 0 ⇒ 五条雾带从上线至今一次都没动过**
+    //     （出生那一刻的 set_pos 之后，x 再没变过）。
+    int16_t rx;
 } wx_fog_t;
 
 static wx_p_t    s_wx_p[WX_P_MAX];
@@ -1666,6 +1689,8 @@ static void wx_seed(int i, bool anywhere)
         return;
     }
     p->ph = (uint16_t)wx_rand(0, 1999);
+    p->rx = 0;                                  // 亚像素余数：见 wx_p_t::rx
+    p->ry = 0;
 
     // ★ 横穿的两种按方向补一次**水平镜像**。
     //   素材只画了朝右的一套（见 _gen_fx45b.py），左飞就得把图翻过来。
@@ -1707,6 +1732,7 @@ static void wx_fog_seed(int i, bool anywhere)
 
     f->w  = (uint8_t)w;
     f->vx = (int8_t)wx_rand(4, 13);          // 很慢：横穿 240px 要 20~60 秒
+    f->rx = 0;                               // 亚像素余数：见 wx_fog_t::rx
     // ★ y 用「第 i 条的轨道中心 − 半高」算左上角。轨道是**均匀分布**的
     //   （WX_FOG_TOP + i*WX_FOG_STEP），只加一点抖动 —— 让 5 条像五层雾，
     //   而不是随机撒在屏幕上的五块白斑。
@@ -1734,7 +1760,16 @@ static void wx_fog_tick(uint32_t dt)
     for (int i = 0; i < WX_FOG_N; i++) {
         wx_fog_t *f = &s_wx_fogp[i];
         // 速度和粒子那套一样是「像素/秒」，乘 dt 再除 1000 ⇒ **与帧率无关**。
-        f->x = (int16_t)((int32_t)f->x + ((int32_t)f->vx * (int32_t)dt) / 1000);
+        // ★★ 2026-09-23 修（第五十四轮）：与 weather_tick 同一个 bug。
+        //    雾的 vx 只有 4~13 px/s（见 wx_fog_seed），dt=50 时 vx*dt = 200~650，
+        //    **一台机器上全部截断成 0** ⇒ 五条雾带自从 set_pos 那一次之后 x 再没变过，
+        //    整场雾实际是一组**静止的白斑**（设计意图是「20~60 秒横穿画面」）。
+        //    改成余数跨帧累加，速度才真的是标称值。
+        {
+            const int32_t dx = (int32_t)f->vx * (int32_t)dt + f->rx;
+            f->x  = (int16_t)((int32_t)f->x + dx / 1000);
+            f->rx = (int16_t)(dx % 1000);
+        }
         // 整条飘出右沿（左端越过 SCR_W + 20 时，最窄的 150px 带也已完全出去）
         if (f->x > SCR_W + 20) { wx_fog_seed(i, false); continue; }
         lv_obj_set_x(U.wx_fog[i], f->x);      // 只有 x 变 —— y 整场不变
@@ -2005,8 +2040,30 @@ static void weather_tick(uint32_t dt)
         //    30fps 和 20fps 下走的是同样的距离，掉帧时天气不会忽然变慢。
         //    ⚠ 中间量用 int32：vy 最大 560、dt 通常 33，乘积才 1.8 万其实放得下
         //      int16；但 bx 是**长期累积**的，而且将来调速度时没人会回来重算这个。
-        p->y  = (int16_t)((int32_t)p->y  + ((int32_t)p->vy * (int32_t)dt) / 1000);
-        p->bx = (int16_t)((int32_t)p->bx + ((int32_t)p->vx * (int32_t)dt) / 1000);
+        //
+        //    ★★ 2026-09-23 修（第五十四轮）：原来这里是把商**直接写回坐标** ——
+        //       `p->y += vy * dt / 1000`。C 的整数除法向零截断、**商以外的余数直接丢弃**，
+        //       于是每帧不足 1px 的那部分永远补不回来。本机 FRAME_MS = 50（20fps）时：
+        //         · 萤火 vy ∈ [-26,-12] ⇒ vy*dt ∈ [-1300,-600] ⇒ 商只有 0 和 -1，
+        //           **近一半粒子一帧都不动**（悬在出生点，只剩横向摆动），
+        //           画面上读成「撒了一把静止的金点」，而不是「从草里升起来的萤火」。
+        //         · 雪 / 肥皂泡的 vx ∈ [-10,14] ⇒ 全部截成 0 ⇒ 横向漂移整个消失
+        //           （纵向因为 vy 大还有 1~2px，所以肉眼看不出少了一半）。
+        //       ★ 雨、飞机、热气球速度大（商本身就是 1~2 或更多），一直是对的 ——
+        //         这也正是它藏了这么久、之前几轮的实机验收全都没发现的原因。
+        //    修法：把余数留在 p->rx / p->ry 里滚进下一帧（**亚像素累加**）。
+        //      总位移与「不做截断」的精确值严格相等，仍然全整数、不用浮点。
+        //      ⚠ 余数用 `%` 取，不要用「减掉商*1000」手算 —— C99 规定
+        //        `a/b*b + a%b == a` 对负数同样成立，所以余数恒落在 (-999, 999]，
+        //        不会随帧数滚雪球；改成手写反而要自己处理符号。
+        {
+            const int32_t dy = (int32_t)p->vy * (int32_t)dt + p->ry;
+            const int32_t dx = (int32_t)p->vx * (int32_t)dt + p->rx;
+            p->y  = (int16_t)((int32_t)p->y  + dy / 1000);
+            p->bx = (int16_t)((int32_t)p->bx + dx / 1000);
+            p->ry = (int16_t)(dy % 1000);
+            p->rx = (int16_t)(dx % 1000);
+        }
         p->ph = (uint16_t)((p->ph + dt) % 2000u);
 
         if (wx_out(p)) { wx_seed(i, false); continue; }
@@ -3737,10 +3794,25 @@ static void menu_refresh(void)
         lv_label_set_text(U.menu_row_lb[i], need > 0 ? "未解锁" : GAME_NAME[i]);
         menu_icon_dim(i, need > 0);
 
-        // 副行：解锁状态。★ 口径照设计稿 —— 写**门槛总数**（「6 张解锁」），
-        //   不是「还差几张」。已解锁的写「已解锁」。
-        if (need > 0) snprintf(buf, sizeof(buf), "%d 张解锁", game_need_total(i));
-        else          snprintf(buf, sizeof(buf), "已解锁");
+        // 副行：★ 这一格现在承载**两件事**，按解锁与否分。
+        //   · 未解锁 ⇒ 门槛总数（「6 张解锁」）—— 口径照设计稿，写**总数**
+        //     而不是「还差几张」（"还差几张"由光标停上去时那句提示负责）。
+        //   · 已解锁 ⇒ ★★ 2026-10-04（r57）：改成**这个游戏的最高分**（「最高 12」）。
+        //     原来这里写「已解锁」—— 一个解锁之后永远不变的、没有信息量的词。
+        //     用户点名要显示最高分，落点也是他选的（选择页每张卡的副行）。
+        //     ⚠ 从没玩过（best == 0）时**保留「已解锁」**，不显示「最高 0」——
+        //       不然读起来像"扣了 0 分"。
+        //     ⚠⚠ 「最高」两个字必须进 **tiny** 字库（本行用的是 fa_font_tiny）：
+        //       它以前只在 fa_talk.c 里出现，按字库规则**只喂 ui、不喂 tiny**。
+        //       现在文案落在这个文件（基础组）里，重跑 gen_fa_fonts.py 就会被
+        //       扫进 ui+tiny；漏跑的表现是**方框**（详见 r57 设计与改动清单 §2.3）。
+        if (need > 0) {
+            snprintf(buf, sizeof(buf), "%d 张解锁", game_need_total(i));
+        } else {
+            const int best = fa_hi_get(i);   // ★ 四个游戏各一份，存在 fa_game.c 的 NVS 键 "hi"
+            if (best > 0) snprintf(buf, sizeof(buf), "最高 %d", best);
+            else          snprintf(buf, sizeof(buf), "已解锁");
+        }
         lv_label_set_text(U.menu_row_sb[i], buf);
 
         // 底：锁着更暗（70%），已解锁 80%；**选中不改底色**
@@ -4200,9 +4272,10 @@ static void build_mini(void)
 
 // ---- 小游戏的运行期状态 ----
 // ★ 全部是文件级 static，**不进存档**：这是个消遣，丢了就丢了。
-//   唯一可惜的是 s_mini_best —— 它是「本次开机的最好成绩」，
-//   重启归零。要落盘得开一个新的 NVS 键（参考 fa_scene 的写法），
-//   现在的收益不值这一个键。
+//   ★★ 2026-10-04（r57）更正：**最高分是例外，它已经落 NVS** ——
+//     在 `fa_game.c` 的独立键 "hi" 里，**四个游戏各一份**（见 fa_game.h 那段）。
+//     原来这里那个 `s_mini_best`（只统计接罐头、且"本次开机"、重启归零）**已删除**。
+//     ⇒ 别再往这个列表里加"需要留住的成绩"：要留就落 NVS。
 static bool    s_mini_on;                              // 是否在游戏里
 static int     s_mini_ms;                              // 本局剩余毫秒
 static int     s_mini_score;                           // 接住个数
@@ -4217,7 +4290,6 @@ static int32_t s_mini_can_vy[MINI_MAX_CANS];
 static int     s_mini_last_score = -1;
 static int     s_mini_last_cnt   = -1;                 // 上次画过的猫罐头余额（第十二轮）
 static bool    s_mini_tip_up;                          // 开局提示还亮着吗
-static int     s_mini_best;                            // 本次开机的最好成绩
 static fa_play_t s_mini_play;                          // 游戏里那只猫的播放器
 static fa_play_t s_rps_play;                           // 剪刀石头布那只猫的播放器（第十八轮）
 // ★★ 2026-09-20（第二十二轮）收藏册「小游戏 / 设置」两格各一只猫，各一个播放器：
@@ -4798,9 +4870,15 @@ static void mini_finish(void)
 
     (void)fa_award_clover(award);      // award 为 0 时它自己忽略，不用先判
 
-    // ★ 最好成绩只统计接罐头那一个 —— 另外三个游戏的「分」量纲不同
-    //   （赢的局数 / 配成的对数），混进同一个变量里那个数就没有意义了。
-    if (s_mini_game == GAME_CAN && s_mini_score > s_mini_best) s_mini_best = s_mini_score;
+    // ★★ 2026-10-04（r57）：最高分改成**四个游戏各存一份**、并且**落 NVS**。
+    //   原来只有一个 s_mini_best：既只统计接罐头（另外三个游戏的分量纲不同
+    //   —— 打中只数 / 赢的局数 / 配成对数，混在一起那个数没有意义），
+    //   又是"**本次开机**的最好成绩"、重启归零。
+    //   ⇒ 现在交给 fa_game.c 的独立 NVS 键（blob + magic 自校验）；
+    //     slot 直接用游戏号（GAME_* 的顺序就是 0..3，与 MENU_CELL_N 一致）。
+    //   ★ 显示在**选择页每张卡的副行**（见 menu_refresh 里那段）。
+    //   ★ 只在破纪录时写 NVS；0 分不记（"没玩过"与"玩了个 0"不必分开）。
+    fa_hi_report(s_mini_game, s_mini_score);
 
     // 清池子：结算面板后面不该还挂着几个半空的罐头，也不该挂着半截的兔子。
     for (int i = 0; i < MINI_MAX_CANS; i++) mini_can_hide(i);
@@ -5772,9 +5850,14 @@ static void dex_refresh(void)
         //   · 背景是谁本来就**看遮罩后面透出来那张图就知道** ——
         //     dex_show_bg 铺的正是当前挂着的风景，写出来是重复的；
         //   · 「最高 N 个」跟着一起下线（用户点名的是整行）。
-        //   ⚠ `s_mini_best` 这个变量**保留**：mini_finish 仍在维护它，
-        //     别因为这里不再读就当死代码删掉 —— 删了那边会编译不过（好事），
-        //     但更可能是有人顺手用 0 顶掉，那就静默丢了最好成绩。
+        //   ★★ 2026-10-04（r57）**部分回调**：用户主动提出要最高分，
+        //     但**落点不是这里** —— 他选的是选择页每张卡的副行，
+        //     所以这一页继续留空、这一行**不恢复**。
+        //     最高分现在由 fa_game.c 的 NVS 键 "hi" 持久化、四个游戏各一份，
+        //     在选择页副行显示（见 menu_refresh）。
+        //   ⚠ 原先下面那句「`s_mini_best` 这个变量保留、别当死代码删」**已作废**：
+        //     r57 把那个变量整个删掉了（它只统计接罐头、而且是"本次开机"、
+        //     重启归零），换成 fa_hi_report()。别再按老注释去找它。
         //   ⚠ 上面那个 `const char *bg` 也必须一起删：它的唯一用途就是
         //     拼这一行，留着就是一条 unused variable 警告。
         lv_label_set_text(U.dex_idx,  "");
@@ -6406,19 +6489,45 @@ static const lv_image_dsc_t *batt_icon_of(int soc)
 static void batt_show(int soc)
 {
     if (soc < 0) {
-        // ★ 只在「上一帧还显示着数字」时清一次，不然每 30 秒都白写一遍。
-        //   s_last_batt 弄脏成 -1：下次读到了才会重写那一格。
-        // ★ 图标**不清**：读不到电（CW2017 未贴装的批次）时留上一张，
-        //   总比留一块空白好 —— 字没了已经足够说明「这一格现在是空的」。
-        if (s_last_batt != -1) {
-            s_last_batt = -1;
-            lv_label_set_text(U.lb_batt, "");
-            lv_label_set_text(U.dex_batt, "");
+        // ★★ 2026-09-28（用户报「电量数字待机后消失、重启不回」）：
+        //   读失败**不再一次就清**。走到这里的原因是 bsp_battery_soc() 返回 -1
+        //   —— I2C 失败，或者芯片未就绪时读到 0xFF。一次失败不代表芯片坏了，
+        //   而「数字消失」是玩家唯一看得见的症状，所以**先重试**：
+        //   连丢 3 次（≈30 秒）才认账。中间这几秒交给 fa_batt 的自愈任务
+        //   （重跑 init / 复位总线），修好的话玩家根本看不到变化。
+        if (s_batt_miss < 255) s_batt_miss++;
+        // ★ 这里只置标志，真正的活由低优先任务干 —— 在 LVGL 任务里直接重跑
+        //   bsp_battery_init() 最长会阻塞 5 秒（等首次 SOC），等于整屏定格。
+        //   自愈内部自带 60 秒限频，所以这里每轮都请求是安全的。
+        fa_batt_request_recover();
+        if (s_batt_ok) {
+            ESP_LOGW("fa_batt", "电量读取失败（数字先保留，连丢 3 次才清）");
         }
-        s_batt_ok  = false;
-        s_batt_soc = -1;               // hud_paint 据此跳过这一格
+        s_batt_ok = false;
+        // ★ s_batt_soc **保留上一次的有效值**（不再写 -1）：hud_paint 据此
+        //   保持上一档配色 —— 低电量那段红字不会因为一次读失败就变回白色。
+        //   初值本来就是 -1，所以「从没读到过」时的行为与原来完全一样。
+        // ★★ 2026-10-04（r58，候选 2）：**"读不到"要在界面上认账**。
+        //   自愈连续两轮都没救回来（fa_batt_unknown）⇒ 那一格写 "--%"，
+        //   而不是留一片空白。为什么必须区分：
+        //     「满格图标 + 空白」既可能是"没读到"，也可能是"压根没画过"——
+        //     图标是建界面时设的**默认满格**，本身不携带任何信息（09-30 诊断 §1）。
+        //   "-" 与 "%" 都是 ASCII ⇒ 字库必然有（"%" 已被上面的 "%u%%" 用到）。
+        //   ★ 脏判据用「标签当前文本 != 想要的文本」，省掉一个新状态变量：
+        //     连丢 3 次但自愈还没跑完时 want="" ⇒ 行为与改动前完全一样。
+        //   ⚠ 上一版（r57）就是漏了这一段：fa_batt_unknown() 定义了却没人调，
+        //     被 --gc-sections 静默回收 ⇒ nm 里查不到才发现。别再删这一句。
+        const char *want = fa_batt_unknown() ? "--%" : "";
+        if (s_batt_miss >= 3 && strcmp(lv_label_get_text(U.lb_batt), want) != 0) {
+            // 图标仍不清：留上一张总比留一块空白好。
+            // s_last_batt 弄脏成 -1：下次读到了才会重写那一格。
+            s_last_batt = -1;
+            lv_label_set_text(U.lb_batt,  want);
+            lv_label_set_text(U.dex_batt, want);
+        }
         return;
     }
+    s_batt_miss = 0;
     s_batt_ok  = true;
     s_batt_soc = (soc > 100) ? 100 : soc;
     if (s_batt_soc == s_last_batt) return;
@@ -7115,9 +7224,18 @@ void fa_view_init(void)
 
     // 电量计可能不在总线上（CW2017 未贴装的批次）—— 读不到就把这一格留空。
     // ★ 这里只决定「开机第一眼那一格空不空」，**不决定后面读不读**：
-    //   真正的轮询在 fa_view_tick 里，读不到也只是把间隔放到 30 秒。
-    batt_show(bsp_battery_soc());
-    s_batt_ms = 0;
+    //   真正的轮询在 fa_view_tick 开头。
+    // ★★ 2026-09-28：先把自愈看护任务拉起来（幂等），再读第一次。
+    //   顺序反了也不会丢请求（标志是 sticky 的），但这样读起来顺。
+    // ★★ 2026-09-28（r55）：改走 batt_poll()，而不是直接把
+    //   bsp_battery_soc() 的结果喂给 batt_show()。理由是开机那一下**极容易**
+    //   撞上「电量计刚被 init 重启、SOC 寄存器还是占位 0」—— 直接把 0 画上
+    //   去就是一次假的低电告警（用户实测：开机红 0%，十几秒后才变 100%）。
+    //   batt_poll 会用电压交叉校验把这个 0 拦下来，那一格先空着。
+    fa_batt_guard_start();
+    batt_poll();
+    s_batt_ms   = 0;
+    s_batt_miss = 0;
 
     dex_refresh();
     bar_refresh();
@@ -7154,9 +7272,60 @@ static const char *const SIT_POOL[4] = {
     "cat_sleep", "cat_idle", "cat_read", "cat_write",
 };
 
+// ★★ 2026-09-28（r55）电量轮询的**唯一入口** —— 开机的第一次和每轮 tick 都走这里。
+//
+//   为什么不把读硬件的活直接写在 tick 里：读数其实有**三种**结果，处理方式
+//   完全不同（见 fa_batt.h 的 fa_batt_state_t）。散在两个调用点迟早漏一边。
+static void batt_poll(void)
+{
+    // ★★ try-lock：自愈任务正在重跑 bsp_battery_init()，而驱动失败路径里
+    //   那句 i2c_master_bus_rm_device(s_dev) 会**释放设备句柄** —— 此刻若
+    //   还拿着同一个句柄去 transmit_receive，就是 use-after-free。
+    // ★ 拿不到锁就跳过这一轮（保留上次的数字），绝不等待：自愈最长 5 秒，
+    //   让 LVGL 任务在互斥量上等 5 秒 = 整屏定格。
+    if (!fa_batt_try_lock()) return;
+
+    int soc = -1, mv = -1;
+    fa_batt_state_t st = fa_batt_read(&soc, &mv);
+
+    fa_batt_unlock();                 // ★ LVGL 操作一律放在锁外
+
+    if (st == FA_BATT_OK) {
+        batt_show(soc);
+        return;
+    }
+    if (st == FA_BATT_WARMING) {
+        // ★★ 芯片刚被重启、SOC 还没算完（占位 0）—— **这不是故障**：
+        //   不计 miss、不请求自愈、也不清数字，保持现状等它算完。
+        //   开机时那一格本来就是空的（lb_batt 的初值是 ""），所以玩家看到的是
+        //   「开机先空着 → 几秒后直接出现真实值」，而不是一个假的「红 0%」。
+        //   ⚠ 千万别把它并进下面那条失败路径 —— 那会让自愈反复重启芯片，
+        //     而每次重启又产生一个占位 0，直接死循环。
+        return;
+    }
+    batt_show(-1);                    // 原有失败路径：计 miss + 请求自愈
+}
+
 void fa_view_tick(uint32_t dt_ms)
 {
     const uint32_t dt = dt_ms;
+
+    // ---------------- 电量轮询（★ 2026-09-28 从函数末尾搬到这里）----------------
+    // ★★ 为什么必须放在**所有提前 return 之前**：开场剧情和小游戏是两条全屏
+    //   路径，它们在下面直接 return。原来的位置在函数末尾 ⇒ 那两种状态下电量
+    //   根本不轮询、自愈也就无从触发。HUD 虽被全屏盖住「看不见」，但状态必须
+    //   始终是最新的，否则退出那两层时会先闪一个旧数字。
+    // ★ 节奏分两档：**还没显示过数字时 3 秒一次**（芯片算完就能立刻出现，
+    //   开机体验好），显示过之后回到 10 秒（I2C 读是阻塞的，别老挂在 20fps
+    //   的 tick 上）。s_batt_soc 只在成功读到后才 >= 0 ⇒ 这条件正好等价于
+    //   「还没显示过」。
+    // ★ 失败也走 10 秒（原来是 30 秒）—— 因为「连丢 3 次才清数字」要卡在
+    //   30 秒左右；间隔若还是 30 秒，得 90 秒才清，显示上太迟钝。
+    s_batt_ms += dt;
+    if (s_batt_ms >= (s_batt_soc < 0 ? 3000u : 10000u)) {
+        s_batt_ms = 0;
+        batt_poll();
+    }
 
     // ---------------- 开场剧情 ----------------
     // 开场期间只跑剧情自己的动画，主界面整套动画停掉 ——
@@ -7501,13 +7670,10 @@ void fa_view_tick(uint32_t dt_ms)
         if (!s_toast_ms) lv_obj_add_flag(U.toast, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // 电量每 10 秒读一次 —— I2C 读是阻塞的，挂在每帧上会拖慢渲染。
-    // ★ 读不到时改成 30 秒后再试，**不是永远不试**（见 s_batt_ok 的说明）。
-    s_batt_ms += dt;
-    if (s_batt_ms >= (s_batt_ok ? 10000u : 30000u)) {
-        s_batt_ms = 0;
-        batt_show(bsp_battery_soc());
-    }
+    // ★★ 2026-09-28：电量轮询**已移到本函数开头**（见那一节的说明）。
+    //   原来它在这里、函数末尾，而开场剧情与小游戏两处会提前 return ⇒
+    //   那两种状态下电量完全不刷新，自愈也就无从谈起。
+    //   ⚠ 别把轮询搬回来「图它离 hud_refresh 近」：那两个 return 在它上面。
 
     hud_refresh();
 }

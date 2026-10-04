@@ -271,6 +271,75 @@ void fa_scene_clear(void)
     ESP_LOGI(TAG, "scene back to default");
 }
 
+// --------------------------------------------------------- 小游戏最高分（r57）
+//
+// ★★ 2026-10-04（第五十七轮）。用户原话：
+//     「我考虑给小游戏价格最高分。」（"价格" = "加个"）
+//   落点由用户选定 = **选择页每张卡的副行**（见 fa_view.c 的 menu_refresh）。
+//   四个游戏各一份的理由、以及为什么不塞进 fa_save_t，见 fa_game.h 那一段。
+#define NVS_KEY_HI  "hi"
+#define FA_HI_MAGIC 0x4849u          // 'H','I'
+
+typedef struct {
+    uint16_t magic;
+    uint16_t hi[FA_HI_SLOTS];
+} fa_hi_t;
+
+static fa_hi_t s_hi;
+static bool    s_hi_loaded;
+
+static void fa_hi_load(void)
+{
+    if (s_hi_loaded) return;
+    s_hi_loaded = true;
+    memset(&s_hi, 0, sizeof(s_hi));
+
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+    fa_hi_t tmp;
+    size_t n = sizeof(tmp);
+    esp_err_t e = nvs_get_blob(h, NVS_KEY_HI, &tmp, &n);
+    nvs_close(h);
+
+    // ★ 读出必须**自校验**：magic 不对 / 尺寸不对 ⇒ 当作"还没记录"，
+    //   绝不拿一坨来路不明的字节当分用（见 MEMORY.md 第 16 条那条规矩）。
+    if (e == ESP_OK && n == sizeof(tmp) && tmp.magic == FA_HI_MAGIC) {
+        s_hi = tmp;
+    } else if (e == ESP_OK) {
+        ESP_LOGW(TAG, "hi-score blob mismatch (size=%u magic=%04x); starting from 0",
+                 (unsigned)n, (unsigned)tmp.magic);
+    }
+}
+
+int fa_hi_get(int slot)
+{
+    if (slot < 0 || slot >= FA_HI_SLOTS) return 0;
+    fa_hi_load();
+    return (int)s_hi.hi[slot];
+}
+
+void fa_hi_report(int slot, int score)
+{
+    if (slot < 0 || slot >= FA_HI_SLOTS) return;
+    if (score <= 0) return;                  // 0 分不记："没玩过"与"玩了个 0"不必分开
+    if (score > 999) score = 999;            // ★ 夹取只写在这一处，界面层不重复这个数
+    fa_hi_load();
+    if (score <= (int)s_hi.hi[slot]) return; // 没破纪录就不写 NVS（省擦写）
+
+    s_hi.hi[slot] = (uint16_t)score;
+    s_hi.magic    = FA_HI_MAGIC;
+
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGW(TAG, "NVS open failed; hi-score applies to this boot only");
+        return;
+    }
+    nvs_set_blob(h, NVS_KEY_HI, &s_hi, sizeof(s_hi));
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "hi-score: slot %d -> %d", slot, score);
+}
+
 // --------------------------------------------------------- 小院道具（已删除）
 //
 // ★★ 2026-09-19（第五次）整节删除，对应 fa_game.h 里同名的那段说明。
